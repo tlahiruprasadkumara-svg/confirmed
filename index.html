@@ -38,40 +38,57 @@
 
   <script>
     // 🔑 Supabase setup
-   const SUPABASE_URL = "https://svogxyuxvkcyxifexwvd.supabase.co";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2b2d4eXV4dmtjeXhpZmV4d3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc3NTk2NDYsImV4cCI6MjA3MzMzNTY0Nn0.I0x0xtKR9yaUOqcZ_TDDclVazevhTrBdy4k0sCXEwLA";
+    const SUPABASE_URL = "https://svogxyuxvkcyxifexwvd.supabase.co";
+    const SUPABASE_ANON_KEY ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2b2d4eXV4dmtjeXhpZmV4d3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc3NTk2NDYsImV4cCI6MjA3MzMzNTY0Nn0.I0x0xtKR9yaUOqcZ_TDDclVazevhTrBdy4k0sCXEwLA";
     const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+    let currentEmail = null;
+
     async function checkUserStatus() {
-      const { data: user, error } = await supabase.auth.getUser();
-      if (error || !user) {
+      const { data: userData, error } = await supabase.auth.getUser();
+      if (error || !userData.user) {
         document.getElementById("title").innerText = "Error!";
         document.getElementById("message").innerText = "Cannot fetch user info.";
         return;
       }
 
-      const email = user.user.email;
+      currentEmail = userData.user.email;
 
-      // Check status from users_profile table
-      const { data: profile, error: profileError } = await supabase
+      updateUI(await getUserStatus(currentEmail));
+
+      // 🔔 Subscribe for realtime changes
+      supabase
+        .channel("user-status-channel")
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "users_profile", filter: `email=eq.${currentEmail}` },
+          (payload) => {
+            if (payload.new) {
+              updateUI(payload.new.status);
+            }
+          }
+        )
+        .subscribe();
+    }
+
+    async function getUserStatus(email) {
+      const { data, error } = await supabase
         .from("users_profile")
         .select("status")
         .eq("email", email)
         .maybeSingle();
+      return data ? data.status : null;
+    }
 
-      if (profileError || !profile) {
-        document.getElementById("title").innerText = "Error!";
-        document.getElementById("message").innerText = "Cannot find your profile.";
-        return;
-      }
-
-      if (profile.status === "active") {
+    function updateUI(status) {
+      if (status === "active") {
         document.getElementById("title").innerText = "✅ Email Confirmed";
         document.getElementById("message").innerText = "Your account is approved by admin. You can login now.";
         document.getElementById("loginBtn").style.display = "inline-block";
       } else {
         document.getElementById("title").innerText = "⏳ Email Confirmed";
-        document.getElementById("message").innerText = "Your email is confirmed, but admin approval is still pending. Please wait.";
+        document.getElementById("message").innerText = "Your email is confirmed, but admin approval is still pending. Please wait...";
+        document.getElementById("loginBtn").style.display = "none";
       }
     }
 
